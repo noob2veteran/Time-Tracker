@@ -21,8 +21,10 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 # --- Configuration ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
-TEMP_CHANNEL_ID = os.environ.get("TEMP_CHANNEL_ID", "YOUR_TEMP_CHANNEL_ID_HERE")
-MAIN_CHANNEL_ID = os.environ.get("MAIN_CHANNEL_ID", "YOUR_MAIN_CHANNEL_ID_HERE")
+
+# ✅ Cast to int so negative channel IDs work properly
+TEMP_CHANNEL_ID = int(os.environ.get("TEMP_CHANNEL_ID", "-1001234567890"))
+MAIN_CHANNEL_ID = int(os.environ.get("MAIN_CHANNEL_ID", "-1001234567890"))
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -38,7 +40,6 @@ ASKING_TASK = 0
 
 # --- Helper Function to Format Tasks ---
 def format_tasks_for_day(day_str: str) -> str:
-    # This function is unchanged
     tasks = tasks_storage.get(day_str, [])
     if not tasks:
         return f"Date: {day_str}\n\nNo tasks recorded."
@@ -48,7 +49,7 @@ def format_tasks_for_day(day_str: str) -> str:
         time = task_item["time"]
         task_desc = task_item["task"]
         prefix = "└" if i == len(tasks) - 1 else "├"
-        lines = task_desc.split('\n')
+        lines = task_desc.split("\n")
         first_line = f"{prefix}{time}─  {lines[0]}"
         additional_lines = [f" |                     {line}" for line in lines[1:]]
         task_lines.append(first_line)
@@ -57,11 +58,9 @@ def format_tasks_for_day(day_str: str) -> str:
 
 # --- Bot Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # This function is unchanged
     await update.message.reply_text("Hi! I'm your daily task tracker. Use /settask to add a new task.")
 
 async def settask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # This function is unchanged
     await update.message.reply_text(
         "What task are you starting now? Send me the description.\n\n"
         "Send /cancel to stop."
@@ -80,31 +79,28 @@ async def receive_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     formatted_tasks = format_tasks_for_day(current_date)
     
     try:
-        # --- NEW CODE: VERIFICATION STEP ---
-        # We'll force a check on the channel's status before sending.
         logger.info(f"Verifying access to channel {TEMP_CHANNEL_ID}...")
-        await context.bot.get_chat(chat_id=str(TEMP_CHANNEL_ID))
+        await context.bot.get_chat(chat_id=TEMP_CHANNEL_ID)
         logger.info("Verification successful. Sending message...")
         
-        # Original send message call, now with the ID cast to a string
-        await context.bot.send_message(chat_id=str(TEMP_CHANNEL_ID), text=formatted_tasks)
+        await context.bot.send_message(chat_id=TEMP_CHANNEL_ID, text=formatted_tasks)
         
     except Exception as e:
         logger.error(f"Failed to send message to temporary channel {TEMP_CHANNEL_ID}: {e}")
-        await update.message.reply_text(f"❌ Error: Could not send log to the temporary channel. Please check its status.\nDetails: {e}")
+        await update.message.reply_text(
+            f"❌ Error: Could not send log to the temporary channel. Please check its status.\nDetails: {e}"
+        )
         return ConversationHandler.END
 
     await update.message.reply_text("✅ Task added and log updated!")
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # This function is unchanged
     await update.message.reply_text("Operation cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
 # --- Scheduled Job ---
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Sends the final task list to the main channel and clears the day's tasks."""
     today_str = datetime.now().strftime("%Y-%m-%d")
     
     if today_str in tasks_storage:
@@ -112,13 +108,11 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
         final_summary = format_tasks_for_day(today_str)
         
         try:
-            # --- NEW CODE: VERIFICATION STEP ---
             logger.info(f"Verifying access to main channel {MAIN_CHANNEL_ID}...")
-            await context.bot.get_chat(chat_id=str(MAIN_CHANNEL_ID))
+            await context.bot.get_chat(chat_id=MAIN_CHANNEL_ID)
             logger.info("Verification successful. Sending summary...")
             
-            # Original send message call, now with the ID cast to a string
-            await context.bot.send_message(chat_id=str(MAIN_CHANNEL_ID), text=final_summary)
+            await context.bot.send_message(chat_id=MAIN_CHANNEL_ID, text=final_summary)
             
             del tasks_storage[today_str]
         except Exception as e:
@@ -128,7 +122,6 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # --- Error Handler ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # This function is unchanged
     logger.error("Exception while handling an update:", exc_info=context.error)
     tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
     tb_string = "".join(tb_list)
@@ -144,14 +137,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 # --- Main Application Setup ---
 async def post_init(application: Application) -> None:
-    # This function is unchanged
     scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
-    scheduler.add_job(send_daily_summary, 'cron', hour=23, minute=55, args=[application])
+    scheduler.add_job(send_daily_summary, "cron", hour=23, minute=55, args=[application])
     scheduler.start()
     logger.info("Scheduler started successfully.")
 
 def main() -> None:
-    # This function is unchanged except for removing the debug command
     application = (
         Application.builder()
         .token(BOT_TOKEN)
