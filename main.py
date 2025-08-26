@@ -1,13 +1,9 @@
 import os
 import logging
-import traceback
-import html
-import json
 from datetime import datetime
 from collections import defaultdict
-from zoneinfo import ZoneInfo  # built-in in Python 3.9+
+from zoneinfo import ZoneInfo  # Python 3.9+
 
-from flask import Flask, request
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
@@ -18,7 +14,6 @@ from telegram.ext import (
     filters,
 )
 from apscheduler.schedulers.background import BackgroundScheduler
-import asyncio
 
 # =====================
 # ENV VARIABLES
@@ -26,9 +21,10 @@ import asyncio
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TEMP_CHANNEL_ID = os.environ.get("TEMP_CHANNEL_ID")
 MAIN_CHANNEL_ID = os.environ.get("MAIN_CHANNEL_ID")
+APP_URL = os.environ.get("APP_URL")  # Render public URL
 
-if not BOT_TOKEN or not TEMP_CHANNEL_ID or not MAIN_CHANNEL_ID:
-    raise ValueError("Please set BOT_TOKEN, TEMP_CHANNEL_ID and MAIN_CHANNEL_ID as environment variables.")
+if not BOT_TOKEN or not TEMP_CHANNEL_ID or not MAIN_CHANNEL_ID or not APP_URL:
+    raise ValueError("Please set BOT_TOKEN, TEMP_CHANNEL_ID, MAIN_CHANNEL_ID, APP_URL as environment variables.")
 
 # =====================
 # Logging
@@ -48,11 +44,6 @@ tasks_storage = defaultdict(list)
 # Conversation States
 # =====================
 ASKING_TASK = 0
-
-# =====================
-# Flask app
-# =====================
-app = Flask(__name__)
 
 # =====================
 # Helper functions
@@ -124,6 +115,9 @@ async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(msg)
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
 # =====================
 # Scheduled daily summary
 # =====================
@@ -139,29 +133,11 @@ def send_daily_summary(app: Application):
             logger.error(f"Failed to send daily summary to MAIN_CHANNEL {MAIN_CHANNEL_ID}: {e}")
 
 # =====================
-# Error Handler
-# =====================
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error("Exception while handling an update:", exc_info=context.error)
-    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
-    tb_string = "".join(tb_list)
-    update_str = update.to_dict() if isinstance(update, Update) else str(update)
-    message = (
-        f"An exception was raised while handling an update\n"
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}</pre>\n\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
-        f"<pre>{html.escape(tb_string)}</pre>"
-    )
-    logger.error(message)
-
-# =====================
-# Initialize bot
+# Application setup
 # =====================
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_error_handler(error_handler)
 
-# Conversation handler
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("settask", settask_start)],
     states={ASKING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_task)]},
@@ -180,32 +156,12 @@ scheduler.start()
 logger.info("Scheduler started successfully.")
 
 # =====================
-# Start bot in background
-# =====================
-async def startup_bot():
-    await application.initialize()
-    await application.start()
-    logger.info("Bot started successfully!")
-
-asyncio.get_event_loop().create_task(startup_bot())
-
-# =====================
-# Flask webhook
-# =====================
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    data = request.get_json(force=True)
-    update = Update.de_json(data, application.bot)
-    application.update_queue.put_nowait(update)
-    return "OK", 200
-
-@app.route("/", methods=["GET"])
-def index():
-    return "Bot is running!", 200
-
-# =====================
-# Run Flask
+# Run webhook (this replaces Flask)
 # =====================
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=int(os.environ.get("PORT", 5000)),
+        url_path=BOT_TOKEN,
+        webhook_url=f"{APP_URL}/{BOT_TOKEN}"
+    )
