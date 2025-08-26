@@ -66,7 +66,7 @@ def format_tasks_for_day(day_str: str) -> str:
 # --- Bot Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a welcome message."""
-    await update.message.reply_text("Hi! I'm your daily task tracker. Use /settask to add a new task.")
+    await update.message.reply_text("Hi! I'm your daily task tracker. Use /settask to add a new task. Use /getid to find a chat's ID.")
 
 async def settask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Starts the conversation to add a new task."""
@@ -97,6 +97,23 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels the current operation."""
     await update.message.reply_text("Operation cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
+
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Replies with the chat ID of the current chat or the forwarded chat."""
+    
+    # Check if the message is a forwarded message from a channel
+    if update.message.forward_from_chat:
+        chat_id = update.message.forward_from_chat.id
+        chat_title = update.message.forward_from_chat.title
+        await update.message.reply_text(
+            f"The forwarded message is from the channel '{chat_title}'.\n"
+            f"Its Chat ID is: `{chat_id}`"
+        )
+    # If not forwarded, give the ID of the current chat
+    else:
+        chat_id = update.message.chat_id
+        await update.message.reply_text(f"This chat's ID is: `{chat_id}`")
+
 
 # --- Scheduled Job ---
 async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,6 +178,7 @@ def main() -> None:
 
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("getid", get_id)) # New debug command
 
     logger.info("Bot is running...")
     
