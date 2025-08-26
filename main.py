@@ -5,7 +5,7 @@ import html
 import json
 from datetime import datetime
 from collections import defaultdict
-import pytz
+from zoneinfo import ZoneInfo  # built-in in Python 3.9+
 
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardRemove
@@ -18,6 +18,7 @@ from telegram.ext import (
     filters,
 )
 from apscheduler.schedulers.background import BackgroundScheduler
+import asyncio
 
 # =====================
 # ENV VARIABLES
@@ -57,8 +58,7 @@ app = Flask(__name__)
 # Helper functions
 # =====================
 def get_indian_time():
-    tz = pytz.timezone("Asia/Kolkata")
-    return datetime.now(tz)
+    return datetime.now(ZoneInfo("Asia/Kolkata"))
 
 def format_tasks_for_day(day_str: str) -> str:
     tasks = tasks_storage.get(day_str, [])
@@ -100,7 +100,6 @@ async def receive_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     formatted_tasks = format_tasks_for_day(current_date)
     
     try:
-        # Try sending to TEMP_CHANNEL once
         await context.bot.send_message(chat_id=TEMP_CHANNEL_ID, text=formatted_tasks)
     except Exception as e:
         logger.error(f"Failed to send message to TEMP_CHANNEL {TEMP_CHANNEL_ID}: {e}")
@@ -117,6 +116,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("Operation cancelled.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = (
+        f"TEMP_CHANNEL_ID = {TEMP_CHANNEL_ID}\n"
+        f"MAIN_CHANNEL_ID = {MAIN_CHANNEL_ID}\n"
+        f"Your User ID = {update.effective_user.id}"
+    )
+    await update.message.reply_text(msg)
+
 # =====================
 # Scheduled daily summary
 # =====================
@@ -130,17 +137,6 @@ def send_daily_summary(app: Application):
             logger.info(f"Daily summary sent for {today_str}")
         except Exception as e:
             logger.error(f"Failed to send daily summary to MAIN_CHANNEL {MAIN_CHANNEL_ID}: {e}")
-
-# =====================
-# /myid command for debugging
-# =====================
-async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        f"TEMP_CHANNEL_ID = {TEMP_CHANNEL_ID}\n"
-        f"MAIN_CHANNEL_ID = {MAIN_CHANNEL_ID}\n"
-        f"Your User ID = {update.effective_user.id}"
-    )
-    await update.message.reply_text(msg)
 
 # =====================
 # Error Handler
@@ -165,6 +161,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 application = Application.builder().token(BOT_TOKEN).build()
 application.add_error_handler(error_handler)
 
+# Conversation handler
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("settask", settask_start)],
     states={ASKING_TASK: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_task)]},
@@ -183,6 +180,16 @@ scheduler.start()
 logger.info("Scheduler started successfully.")
 
 # =====================
+# Start bot in background
+# =====================
+async def startup_bot():
+    await application.initialize()
+    await application.start()
+    logger.info("Bot started successfully!")
+
+asyncio.get_event_loop().create_task(startup_bot())
+
+# =====================
 # Flask webhook
 # =====================
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
@@ -196,6 +203,9 @@ def telegram_webhook():
 def index():
     return "Bot is running!", 200
 
+# =====================
+# Run Flask
+# =====================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
