@@ -7,8 +7,7 @@ import signal
 from datetime import datetime
 from collections import defaultdict
 
-# pip install python-telegram-bot apscheduler
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,7 +21,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 # --- Configuration ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
-# ✅ Cast to int so negative channel IDs work properly
+# ✅ Cast env values to int (handles negative channel IDs correctly)
 TEMP_CHANNEL_ID = int(os.environ.get("TEMP_CHANNEL_ID", "-1001234567890"))
 MAIN_CHANNEL_ID = int(os.environ.get("MAIN_CHANNEL_ID", "-1001234567890"))
 
@@ -68,7 +67,6 @@ async def settask_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return ASKING_TASK
 
 async def receive_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Stores the task description and ends the conversation."""
     task_description = update.message.text
     now = datetime.now()
     current_time = now.strftime("%I:%M %p")
@@ -120,6 +118,21 @@ async def send_daily_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
     else:
         logger.info(f"No tasks to summarize for {today_str}")
 
+# --- Debug Commands ---
+async def checkids(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Check what IDs the bot is seeing from env vars."""
+    await update.message.reply_text(
+        f"TEMP_CHANNEL_ID = {TEMP_CHANNEL_ID}\nMAIN_CHANNEL_ID = {MAIN_CHANNEL_ID}"
+    )
+
+async def pingchannel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Try sending a test message directly to TEMP_CHANNEL_ID."""
+    try:
+        await context.bot.send_message(chat_id=TEMP_CHANNEL_ID, text="🔍 Test message from bot (pingchannel)")
+        await update.message.reply_text("✅ Successfully sent test message to TEMP_CHANNEL_ID")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Failed to send test message.\nDetails: {e}")
+
 # --- Error Handler ---
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error("Exception while handling an update:", exc_info=context.error)
@@ -159,6 +172,11 @@ def main() -> None:
     )
     application.add_handler(CommandHandler("start", start))
     application.add_handler(conv_handler)
+
+    # --- Debug commands ---
+    application.add_handler(CommandHandler("checkids", checkids))
+    application.add_handler(CommandHandler("pingchannel", pingchannel))
+
     logger.info("Bot is running...")
     application.run_polling(
         drop_pending_updates=True, stop_signals=[signal.SIGTERM, signal.SIGINT]
